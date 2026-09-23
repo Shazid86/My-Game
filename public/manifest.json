@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "GRAVEYARD SHIFT — Zombie Survival Shooter",
+  "short_name": "GRAVEYARD SHIFT",
+  "description": "Hold the yard against wave after wave of the restless dead.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0b0f0a",
+  "theme_color": "#0b0f0a",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
