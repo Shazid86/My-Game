@@ -131,6 +131,25 @@ const WEAPONS: WeaponDef[] = [
 const ROLE_COLOR: Record<WeaponRole, string> = { long: "#9adcff", short: "#ffb46a" };
 const ROLE_LABEL: Record<WeaponRole, string> = { long: "LONG RANGE", short: "SHORT RANGE" };
 
+/** Serializable endless-run snapshot written by Save & Exit and consumed on resume. */
+export interface EndlessSave {
+  v: 1;
+  mode: "endless";
+  difficulty: Difficulty;
+  score: number;
+  kills: number;
+  wave: number;
+  time: number;
+  bestChain: number;
+  deaths: number;
+  hp: number;
+  bombs: number;
+  bombRechargeT: number;
+  wIdx: number;
+  weapons: { id: string; mag: number; reserve: number }[];
+  savedAt: number;
+}
+
 /* AoE bomb tuning */
 const BOMB_RADIUS = 170;
 const BOMB_DMG = 320;
@@ -140,6 +159,7 @@ const BOMB_SPEED = 620;
 const BOMB_FUSE = 0.55; // ~340px of travel at BOMB_SPEED
 const BOMB_START = 2;
 const BOMB_MAX = 5;
+const BOMB_RECHARGE = 20; // seconds to regen one bomb once the stock hits 0 (15–30s budget)
 
 /* World, camera & render budget */
 const WORLD_SCALE = 2.2; // arena area is ~4.8x the viewport
@@ -357,6 +377,8 @@ export class Game {
   // AoE bombs
   private bombs = BOMB_START;
   private bombCd = 0;
+  private bombRechargeT = 0;
+  private bombHoldId = -1; // pointerId while the bomb button is held, -2 while G is held, -1 idle
   private thrown: ThrownBomb[] = [];
   private rings: BlastRing[] = [];
   private blastDepth = 0;
@@ -482,6 +504,71 @@ export class Game {
     this.difficulty = opts.mode === "endless" ? "medium" : opts.difficulty;
   }
 
+  /** Endless only: serializable mid-run snapshot for Save & Exit. */
+  snapshotRun(): EndlessSave | null {
+    if (this.mode !== "endless" || !this.started) return null;
+    if (this.phase !== "playing" && this.phase !== "paused" && this.phase !== "downed") return null;
+    return {
+      v: 1,
+      mode: "endless",
+      difficulty: this.difficulty,
+      score: this.score,
+      kills: this.kills,
+      wave: Math.max(1, this.wave),
+      time: this.runTime,
+      bestChain: this.bestChain,
+      deaths: this.deaths,
+      hp: Math.max(1, Math.min(this.player.hp, this.player.maxHp)),
+      bombs: clamp(this.bombs, 0, BOMB_MAX),
+      bombRechargeT: this.bombRechargeT,
+      wIdx: this.wIdx,
+      weapons: this.weapons.map((o) => ({ id: o.def.id, mag: o.mag, reserve: o.reserve })),
+      savedAt: Date.now(),
+    };
+  }
+
+  /** Consumes a snapshot: fresh endless run with the saved stats, gear and wave replayed. */
+  restoreRun(s: EndlessSave) {
+    this.start({ mode: "endless", difficulty: s.difficulty });
+    this.score = s.score;
+    this.kills = s.kills;
+    this.runTime = s.time;
+    this.bestChain = s.bestChain;
+    this.chain = 0;
+    this.comboT = 0;
+    this.deaths = s.deaths;
+    this.bombs = clamp(s.bombs, 0, BOMB_MAX);
+    this.bombRechargeT = this.bombs === 0 ? Math.max(1, s.bombRechargeT) : 0;
+    this.player.hp = clamp(s.hp, 1, this.player.maxHp);
+    const owned: OwnedWeapon[] = [];
+    for (const ws of s.weapons) {
+      const def = WEAPONS.find((d) => d.id === ws.id);
+      if (def) owned.push({ def, mag: clamp(ws.mag, 0, def.mag), reserve: ws.reserve });
+    }
+    if (owned.length > 0) {
+      this.weapons = owned;
+      this.wIdx = clamp(s.wIdx, 0, owned.length - 1);
+      this.player.reloadT = 0;
+    }
+    // replay the saved wave fresh (mid-wave zombies are not serialized)
+    this.wave = Math.max(1, s.wave);
+    this.spawnQueue = this.waveComp(this.wave);
+    this.spawnT = 0.6;
+    this.interT = 0;
+    this.clearedFlag = false;
+    this.zombies = [];
+    this.marks = [];
+    this.announce(`WAVE ${this.wave} — RESUMED`, `${s.score} PTS · ${s.kills} KILLS`, "#9dff20");
+  }
+
+  /** Save-and-quit leaves the yard WITHOUT counting the run as finished (no onRunEnd). */
+  saveExit() {
+    this.sfx.uiClick();
+    this.started = false;
+    this.initMenuZoms();
+    this.setPhase("menu");
+  }
+
   togglePause() {
     if (this.phase === "playing" || this.phase === "downed") {
       this.resumePhase = this.phase;
@@ -588,6 +675,9 @@ export class Game {
     this.resumePhase = "playing";
     this.bombs = BOMB_START;
     this.bombCd = 0;
+    this.bombRechargeT = 0;
+    this.bombHoldId = -1;
+    this.wantBomb = false;
     this.thrown.length = 0;
     this.rings.length = 0;
     this.blastDepth = 0;
@@ -821,19 +911,12 @@ export class Game {
 
     /* reload — triggered automatically the moment a magazine runs dry */
     const w = this.weapons[this.wIdx];
-    // safety net: a magazine emptied right before a weapon switch still reloads itself
-    if (w.mag <= 0 && w.reserve !== 0 && p.reloadT <= 0) this.startReload();
+    this.tryAutoReload();
     if (p.reloadT > 0) {
       p.reloadT -= dt;
       if (p.reloadT <= 0) {
-        const need = w.def.mag - w.mag;
-        if (w.reserve < 0) w.mag = w.def.mag;
-        else {
-          const take = Math.min(need, w.reserve);
-          w.mag += take;
-          w.reserve -= take;
-        }
-        this.sfx.reload();
+        p.reloadT = 0;
+        this.finishReload();
       }
     }
 
@@ -889,7 +972,34 @@ export class Game {
     const w = this.weapons[this.wIdx];
     if (p.reloadT > 0 || w.mag >= w.def.mag) return;
     if (w.reserve === 0) return;
+    // zero-duration reloads (RIPPER SAW) would never tick past the completion check
+    if (w.def.reload <= 0) {
+      this.finishReload();
+      return;
+    }
     p.reloadT = w.def.reload;
+    this.sfx.reload();
+  }
+
+  /* One shared guard for every firearm: empty mag + any reserve + not already reloading. */
+  private tryAutoReload() {
+    const p = this.player;
+    const w = this.weapons[this.wIdx];
+    if (w.mag <= 0 && w.reserve !== 0 && p.reloadT <= 0) this.startReload();
+  }
+
+  /* Tops the magazine back up exactly once when a reload finishes (or instantly for reload:0). */
+  private finishReload() {
+    const w = this.weapons[this.wIdx];
+    const need = w.def.mag - w.mag;
+    if (need <= 0) return;
+    if (w.reserve < 0) w.mag = w.def.mag;
+    else {
+      if (w.reserve <= 0) return;
+      const take = Math.min(need, w.reserve);
+      w.mag += take;
+      w.reserve -= take;
+    }
     this.sfx.reload();
   }
 
@@ -943,7 +1053,7 @@ export class Game {
     else this.sfx.rifle();
 
     // auto-reload: fire the instant the magazine runs dry, no input required
-    if (w.mag <= 0 && w.reserve !== 0) this.startReload();
+    this.tryAutoReload();
   }
 
   private updateZombies(dt: number) {
@@ -1248,6 +1358,21 @@ export class Game {
 
   private updateBombs(dt: number) {
     this.bombCd = Math.max(0, this.bombCd - dt);
+    // stock-dry recharge; any +1 source (wave clear, respawn) fills the stock and cancels it
+    if (this.bombs === 0) {
+      if (this.bombRechargeT <= 0) this.bombRechargeT = BOMB_RECHARGE;
+      else {
+        this.bombRechargeT -= dt;
+        if (this.bombRechargeT <= 0) {
+          this.bombRechargeT = 0;
+          this.bombs = 1;
+          this.floaters.push({ x: this.player.x, y: this.player.y - 44, life: 1, max: 1, text: "+1 BOMB", color: "#ff5c2a", size: 16 });
+          this.sfx.uiClick();
+        }
+      }
+    } else {
+      this.bombRechargeT = 0;
+    }
     for (let i = this.thrown.length - 1; i >= 0; i--) {
       const b = this.thrown[i];
       b.t += dt;
@@ -1621,7 +1746,8 @@ export class Game {
     } else if (c === "KeyR") {
       if (this.phase === "gameover") this.start();
     } else if (c === "KeyG") {
-      if (this.phase === "playing") this.wantBomb = true;
+      // hold G to preview the throw; releasing (onKeyUp) throws
+      if (this.phase === "playing") this.bombHoldId = -2;
     } else if (c === "Space" || c === "ShiftLeft" || c === "ShiftRight") {
       if (this.phase === "playing") this.wantDash = true;
     } else if (c.startsWith("Digit")) {
@@ -1632,6 +1758,10 @@ export class Game {
 
   private onKeyUp = (e: KeyboardEvent) => {
     this.keys.delete(e.code);
+    if (e.code === "KeyG" && this.bombHoldId === -2) {
+      this.bombHoldId = -1;
+      if (this.phase === "playing") this.wantBomb = true;
+    }
   };
 
   private onWheel = (e: WheelEvent) => {
@@ -1667,7 +1797,7 @@ export class Game {
     // on-screen buttons take priority over the sticks
     for (const b of this.touchButtons()) {
       if (dist2(x, y, b.x, b.y) < b.r * b.r * 1.8) {
-        this.pressTouchBtn(b.id);
+        this.pressTouchBtn(b.id, e.pointerId);
         return;
       }
     }
@@ -1738,6 +1868,10 @@ export class Game {
     if (e.pointerId === this.aimStick.id) {
       this.aimStick = { id: -1, bx: 0, by: 0, dx: 0, dy: 0, on: false };
     }
+    if (e.pointerId === this.bombHoldId) {
+      this.bombHoldId = -1;
+      if (this.phase === "playing") this.wantBomb = true;
+    }
   };
 
   private onBlur = () => {
@@ -1797,10 +1931,10 @@ export class Game {
     ];
   }
 
-  private pressTouchBtn(id: TouchBtnId) {
+  private pressTouchBtn(id: TouchBtnId, pid: number) {
     if (id === "dash") this.wantDash = true;
     else if (id === "swap") this.wantCycle = true;
-    else this.wantBomb = true;
+    else this.bombHoldId = pid; // hold to preview the trajectory; pointerup throws
   }
 
   /* Weapon slot geometry, shared by the HUD and the touch hit-test. */
@@ -1831,6 +1965,8 @@ export class Game {
     this.moveStick = { id: -1, bx: 0, by: 0, dx: 0, dy: 0, on: false };
     this.aimStick = { id: -1, bx: 0, by: 0, dx: 0, dy: 0, on: false };
     this.tapCand = { id: -1, idx: -1, x: 0, y: 0 };
+    this.bombHoldId = -1; // a held bomb never throws across a pause/blur
+    this.wantBomb = false;
   }
 
   /* ---------------- layout & prerender ---------------- */
@@ -2265,6 +2401,7 @@ export class Game {
       }
       this.drawAcids();
       if (this.phase !== "gameover" && this.phase !== "downed") this.drawPlayer();
+      if (this.phase === "playing" && this.bombHoldId !== -1 && this.bombs > 0) this.drawBombSight(c);
       this.drawBullets();
     }
 
@@ -2788,6 +2925,37 @@ export class Game {
     c.restore();
   }
 
+  /* Hold-to-throw aid: dashed flight line + landing reticle (matches updateBombs' linear path). */
+  private drawBombSight(c: CanvasRenderingContext2D) {
+    const p = this.player;
+    const dx = Math.cos(p.aim);
+    const dy = Math.sin(p.aim);
+    const travel = BOMB_SPEED * BOMB_FUSE;
+    const lx = clamp(p.x + dx * (20 + travel), 14, this.worldW - 14);
+    const ly = clamp(p.y + dy * (20 + travel), 14, this.worldH - 14);
+    c.save();
+    c.strokeStyle = "rgba(255,138,92,0.7)";
+    c.lineWidth = 2;
+    c.setLineDash([10, 8]);
+    c.beginPath();
+    c.moveTo(p.x + dx * 20, p.y + dy * 20);
+    c.lineTo(lx, ly);
+    c.stroke();
+    c.setLineDash([]);
+    c.strokeStyle = "rgba(255,138,92,0.9)";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.arc(lx, ly, 12, 0, TAU);
+    c.stroke();
+    c.strokeStyle = "rgba(255,92,42,0.35)";
+    c.setLineDash([7, 7]);
+    c.beginPath();
+    c.arc(lx, ly, BOMB_RADIUS, 0, TAU);
+    c.stroke();
+    c.setLineDash([]);
+    c.restore();
+  }
+
   /* Off-screen threat arrows: one pass into 16 preallocated buckets, ≤8 arrows drawn. */
   private drawThreats(c: CanvasRenderingContext2D) {
     const zs = this.zombies;
@@ -2991,6 +3159,7 @@ export class Game {
 
       const isBomb = b.id === "bomb";
       const ready = this.bombs > 0 && this.bombCd <= 0;
+      const dry = isBomb && this.bombs === 0;
       c.fillStyle = isBomb
         ? ready ? "rgba(255,92,42,0.18)" : "rgba(255,92,42,0.06)"
         : "rgba(255,176,32,0.14)";
@@ -3002,16 +3171,30 @@ export class Game {
       c.arc(b.x, b.y, b.r, 0, TAU);
       c.fill();
       c.stroke();
-      if (isBomb && this.bombCd > 0) {
+      c.textAlign = "center";
+      if (dry && this.bombRechargeT > 0) {
+        // dry: recharge ring + exact seconds until the next bomb
         c.beginPath();
         c.moveTo(b.x, b.y);
-        c.arc(b.x, b.y, b.r - 3, -Math.PI / 2, -Math.PI / 2 + (1 - this.bombCd / 0.6) * TAU);
+        c.arc(b.x, b.y, b.r - 3, -Math.PI / 2, -Math.PI / 2 + (1 - this.bombRechargeT / BOMB_RECHARGE) * TAU);
         c.closePath();
-        c.fillStyle = "rgba(255,92,42,0.22)";
+        c.fillStyle = "rgba(255,92,42,0.3)";
         c.fill();
-      }
-      c.textAlign = "center";
-      if (isBomb) {
+        c.font = `800 15px "Barlow Condensed", sans-serif`;
+        c.fillStyle = "#ff8a5c";
+        c.fillText(`${Math.ceil(this.bombRechargeT)}`, b.x, b.y - 1);
+        c.font = `700 9px "Barlow Condensed", sans-serif`;
+        c.fillStyle = "rgba(255,138,92,0.85)";
+        c.fillText("RECHG", b.x, b.y + 11);
+      } else if (isBomb) {
+        if (this.bombCd > 0) {
+          c.beginPath();
+          c.moveTo(b.x, b.y);
+          c.arc(b.x, b.y, b.r - 3, -Math.PI / 2, -Math.PI / 2 + (1 - this.bombCd / 0.6) * TAU);
+          c.closePath();
+          c.fillStyle = "rgba(255,92,42,0.22)";
+          c.fill();
+        }
         c.fillStyle = ready ? "#ff8a5c" : "rgba(255,138,92,0.45)";
         c.font = `800 17px "Barlow Condensed", sans-serif`;
         c.fillText(`${this.bombs}`, b.x, b.y + 1);
@@ -3091,6 +3274,12 @@ export class Game {
       c.strokeStyle = on ? "#ff8a5c" : "rgba(255,92,42,0.3)";
       c.lineWidth = 1;
       c.strokeRect(bx + 142.5 + i * 14, dy + 3.5, 9, 8);
+    }
+    // recharge progress fills the next empty pip while the stock is dry (both input modes)
+    if (this.bombs === 0 && this.bombRechargeT > 0) {
+      const rp = 1 - this.bombRechargeT / BOMB_RECHARGE;
+      c.fillStyle = "rgba(255,92,42,0.55)";
+      c.fillRect(bx + 143, dy + 4, 8 * rp, 7);
     }
 
     /* --- top-center: wave --- */
@@ -3178,7 +3367,13 @@ export class Game {
     } else {
       c.font = `700 12px "Barlow Condensed", sans-serif`;
       c.fillStyle = "rgba(168,189,138,0.7)";
-      c.fillText(this.touchMode ? "AUTO-RELOAD" : "AUTO-RELOAD  /  G - BOMB", wx, wy + 50);
+      c.fillText(
+        this.touchMode
+          ? "AUTO-RELOAD"
+          : `AUTO-RELOAD  /  G - BOMB${this.bombs === 0 && this.bombRechargeT > 0 ? `  •  BOMB ${Math.ceil(this.bombRechargeT)}s` : ""}`,
+        wx,
+        wy + 50,
+      );
     }
 
     // weapon slots (geometry shared with the touch hit-test)

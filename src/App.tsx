@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Game, type Difficulty, type Mode, type Phase, type RunStats } from "./game/engine";
+import { Game, type Difficulty, type EndlessSave, type Mode, type Phase, type RunStats } from "./game/engine";
 
 interface HS {
   name: string;
@@ -133,6 +133,31 @@ function loadRecs(): RecMap {
 function saveRecs(map: RecMap) {
   try {
     localStorage.setItem(REC_KEY, JSON.stringify(map));
+  } catch {
+    /* noop */
+  }
+}
+
+/* ---------- endless save & resume ---------- */
+const SAVE_KEY = "gs-endless-save";
+
+function loadSave(): EndlessSave | null {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as EndlessSave;
+    if (!s || s.v !== 1 || s.mode !== "endless") return null;
+    if (typeof s.score !== "number" || typeof s.wave !== "number" || s.wave < 1) return null;
+    if (!Array.isArray(s.weapons)) return null;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function clearSave() {
+  try {
+    localStorage.removeItem(SAVE_KEY);
   } catch {
     /* noop */
   }
@@ -364,6 +389,7 @@ export default function App() {
     () => typeof window !== "undefined" && (window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window),
   );
   const [recs, setRecs] = useState<RecMap>(loadRecs);
+  const [savedRun, setSavedRun] = useState<EndlessSave | null>(loadSave);
   const [mode, setMode] = useState<Mode>("survival");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
 
@@ -398,6 +424,26 @@ export default function App() {
     },
     [difficulty],
   );
+
+  const saveAndExit = () => {
+    const s = g()?.snapshotRun();
+    if (!s) return;
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(s));
+    } catch {
+      /* noop */
+    }
+    setSavedRun(s);
+    g()?.saveExit();
+  };
+
+  const resumeSaved = () => {
+    const s = savedRun;
+    if (!s) return;
+    clearSave();
+    setSavedRun(null);
+    g()?.restoreRun(s);
+  };
 
   const qualifies = useCallback(
     (s: RunStats | null) => {
@@ -569,6 +615,11 @@ export default function App() {
                   >
                     <IconSkull /> CLOCK IN
                   </button>
+                  {savedRun && (
+                    <button className="btn btn-ghost px-6 py-3" onClick={resumeSaved}>
+                      RESUME ENDLESS — WAVE {savedRun.wave} · {savedRun.score}
+                    </button>
+                  )}
                   <div className="text-[13px] font-semibold tracking-[0.22em] text-[#a8bd8a]">
                     {isTouch ? "TAP TO DEPLOY" : (
                       <>PRESS <span className="kbd">ENTER</span></>
@@ -621,41 +672,46 @@ export default function App() {
       {/* ============ PAUSE ============ */}
       {phase === "paused" && (
         <div className="safe-inset absolute inset-0 z-30 grid place-items-center bg-[#05080488] p-4 backdrop-blur-[2px]">
-          <div className="panel rise-in w-full max-w-sm p-7 text-center">
+          <div className="panel rise-in w-full max-w-[340px] p-5 text-center">
             <div className="stencil-tag mb-1">SHIFT SUSPENDED</div>
-            <h2 className="font-creep text-6xl text-[#9dff20]">PAUSED</h2>
-            <div className="mx-auto my-4 grid w-full grid-cols-3 gap-2 text-center">
-              <div className="bg-[#0a0e08] py-2">
+            <h2 className="font-creep text-4xl text-[#9dff20]">PAUSED</h2>
+            <div className="mx-auto my-3 grid w-full grid-cols-3 gap-2 text-center">
+              <div className="bg-[#0a0e08] py-1.5">
                 <div className="text-[11px] tracking-[0.2em] text-[#7d9457]">SCORE</div>
-                <div className="text-xl font-extrabold text-[#ffb020] tabular-nums">
+                <div className="text-lg font-extrabold text-[#ffb020] tabular-nums">
                   {stats?.score ?? 0}
                 </div>
               </div>
-              <div className="bg-[#0a0e08] py-2">
+              <div className="bg-[#0a0e08] py-1.5">
                 <div className="text-[11px] tracking-[0.2em] text-[#7d9457]">WAVE</div>
-                <div className="text-xl font-extrabold text-[#ff2f2f]">
+                <div className="text-lg font-extrabold text-[#ff2f2f]">
                   {(stats?.wave ?? 0) || "—"}
                 </div>
               </div>
-              <div className="bg-[#0a0e08] py-2">
+              <div className="bg-[#0a0e08] py-1.5">
                 <div className="text-[11px] tracking-[0.2em] text-[#7d9457]">KILLS</div>
-                <div className="text-xl font-extrabold text-[#e8e2cf]">
+                <div className="text-lg font-extrabold text-[#e8e2cf]">
                   {(stats?.kills ?? 0) || "—"}
                 </div>
               </div>
             </div>
-            <div className="flex flex-col gap-3">
-              <button className="btn px-6 py-3 text-lg" onClick={() => g()?.togglePause()}>
+            <div className="flex flex-col gap-2.5">
+              <button className="btn px-6 py-2.5 text-base" onClick={() => g()?.togglePause()}>
                 RESUME — P
               </button>
-              <button className="btn btn-ghost px-6 py-3" onClick={() => g()?.start()}>
+              <button className="btn btn-ghost px-6 py-2.5" onClick={() => g()?.start()}>
                 RESTART RUN
               </button>
-              <button className="btn btn-ghost px-6 py-3" onClick={() => g()?.toMenu()}>
+              {stats?.mode === "endless" && (
+                <button className="btn btn-ghost px-6 py-2.5" onClick={saveAndExit}>
+                  SAVE &amp; EXIT
+                </button>
+              )}
+              <button className="btn btn-ghost px-6 py-2.5" onClick={() => g()?.toMenu()}>
                 ABANDON POST
               </button>
             </div>
-            <p className="mt-4 text-[12px] tracking-[0.2em] text-[#7d9457]">THE DEAD WAIT FOR NO ONE</p>
+            <p className="mt-3 text-[11px] tracking-[0.2em] text-[#7d9457]">THE DEAD WAIT FOR NO ONE</p>
           </div>
         </div>
       )}
