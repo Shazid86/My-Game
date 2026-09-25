@@ -198,7 +198,7 @@ function ModeCard({
     <button
       type="button"
       onClick={onPick}
-      className="panel w-full p-4 text-left"
+      className="mode-card panel w-full p-4 text-left"
       style={active ? { borderColor: "#9dff20", background: "rgba(157,255,32,0.07)" } : undefined}
     >
       <div className="flex items-center justify-between gap-2">
@@ -390,6 +390,7 @@ export default function App() {
   );
   const [recs, setRecs] = useState<RecMap>(loadRecs);
   const [savedRun, setSavedRun] = useState<EndlessSave | null>(loadSave);
+  const [manualOpen, setManualOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("survival");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
 
@@ -513,9 +514,9 @@ export default function App() {
 
       {/* ============ START SCREEN ============ */}
       {phase === "menu" && (
-        <div className="safe-inset absolute inset-0 z-30 flex flex-col">
+        <div className="safe-inset absolute inset-0 z-30 flex h-[100dvh] flex-col overflow-hidden">
           {/* ticker */}
-          <div className="relative z-10 flex h-9 items-center overflow-hidden border-b border-[#2c3a22] bg-[#0a0e08]/90">
+          <div className="start-ticker relative z-10 flex h-9 items-center overflow-hidden border-b border-[#2c3a22] bg-[#0a0e08]/90">
             <div className="marquee-track flex text-[13px] font-semibold tracking-[0.3em] text-[#9dff20]/70">
               <span className="pr-2">{ticker.repeat(3)}</span>
               <span className="pr-2">{ticker.repeat(3)}</span>
@@ -535,26 +536,40 @@ export default function App() {
             </div>
           </div>
 
-          <div className="relative z-10 flex flex-1 overflow-y-auto p-4 sm:p-8">
-            <div className="m-auto grid w-full max-w-5xl items-center gap-8 py-4 lg:grid-cols-[1.15fr_1fr]">
+          <div className="relative z-10 flex flex-1 items-center overflow-hidden p-3 sm:p-6">
+            <div className="start-grid m-auto grid w-full max-w-5xl items-center gap-3 py-2 lg:grid-cols-[1.15fr_1fr] lg:gap-6 [@media(max-height:500px)]:grid-cols-[1.1fr_1fr]">
               {/* left: identity */}
               <div className="rise-in">
-                <div className="stencil-tag mb-3 flex items-center gap-3">
+                <div className="stencil-tag mb-2 flex items-center gap-3">
                   <span className="inline-block h-[2px] w-8 bg-[#9dff20]" />
                   ZONE 07 // NIGHT OPERATIONS
                 </div>
-                <h1 className="font-creep title-drip text-[19vw] leading-[0.86] text-[#ff2f2f] sm:text-8xl lg:text-[7.2rem]">
+                <h1 className="start-title font-creep title-drip text-[19vw] leading-[0.86] text-[#ff2f2f] sm:text-8xl lg:text-[7.2rem]">
                   GRAVEYARD
                   <br />
                   SHIFT
                 </h1>
-                <p className="mt-4 max-w-md text-lg font-medium leading-snug tracking-wide text-[#e8e2cf]/85">
+                <p className="start-sub mt-3 max-w-md text-lg font-medium leading-snug tracking-wide text-[#e8e2cf]/85">
                   The fence won't hold. Hold the yard instead — wave after wave of the
                   restless dead, until the sun comes up or you don't.
                 </p>
+                <div className="stencil-tag mt-2 text-[#7d9457]">NIGHT OPS BUILD 1.7</div>
 
-                {/* shift selection: mode cards + difficulty chips */}
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className="start-stats mt-5 flex flex-wrap gap-x-6 gap-y-1 text-[13px] font-semibold tracking-[0.18em] text-[#7d9457]">
+                  <span><span className="text-[#ffb020]">5</span> MUTATIONS</span>
+                  <span><span className="text-[#ffb020]">6</span> WEAPONS</span>
+                  <span>
+                    <span className="text-[#9adcff]">3</span> LONG
+                    <span className="text-[#7d9457]"> / </span>
+                    <span className="text-[#ffb46a]">3</span> SHORT
+                  </span>
+                  <span><span className="text-[#ffb020]">∞</span> WAVES</span>
+                </div>
+              </div>
+
+              {/* right: run configuration */}
+              <div className="rise-in-1 flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <ModeCard
                     title="SURVIVAL SHIFT"
                     sub="Die and the shift ends — reach the extraction wave."
@@ -570,7 +585,7 @@ export default function App() {
                     best={recs[recKey("endless", difficulty)]}
                   />
                 </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[11px] font-bold tracking-[0.2em] text-[#7d9457]">
                     DIFFICULTY
                   </span>
@@ -604,9 +619,9 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="mt-7 flex flex-wrap items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3">
                   <button
-                    className="btn px-9 py-4 text-xl"
+                    className="start-cta btn px-9 py-4 text-xl"
                     onClick={() => {
                       run(mode);
                       // phones only: drop into fullscreen before the fight starts
@@ -620,51 +635,51 @@ export default function App() {
                       RESUME ENDLESS — WAVE {savedRun.wave} · {savedRun.score}
                     </button>
                   )}
+                  <button className="btn btn-ghost px-5 py-3" onClick={() => setManualOpen(true)}>
+                    FIELD MANUAL
+                  </button>
                   <div className="text-[13px] font-semibold tracking-[0.22em] text-[#a8bd8a]">
                     {isTouch ? "TAP TO DEPLOY" : (
                       <>PRESS <span className="kbd">ENTER</span></>
                     )}
                   </div>
                 </div>
-
-                <div className="mt-8 flex gap-6 text-[13px] font-semibold tracking-[0.18em] text-[#7d9457]">
-                  <span><span className="text-[#ffb020]">5</span> MUTATIONS</span>
-                  <span><span className="text-[#ffb020]">6</span> WEAPONS</span>
-                  <span>
-                    <span className="text-[#9adcff]">3</span> LONG
-                    <span className="text-[#7d9457]"> / </span>
-                    <span className="text-[#ffb46a]">3</span> SHORT
-                  </span>
-                  <span><span className="text-[#ffb020]">∞</span> WAVES</span>
-                </div>
-              </div>
-
-              {/* right: manual + records */}
-              <div className="flex flex-col gap-4">
-                <div className="panel rise-in-1 p-5">
-                  <div className="stencil-tag mb-3">{isTouch ? "TOUCH PROTOCOL" : "FIELD MANUAL"}</div>
-                  <Manual touch={isTouch} />
-                  {isTouch ? null : (
-                    <div className="mt-3 border-t border-[#2c3a22] pt-3">
-                      <div className="stencil-tag mb-2 text-[#ffb020]">TOUCH PROTOCOL</div>
-                      <p className="text-[14px] tracking-wide text-[#a8bd8a]">
-                        On phones: left stick moves, right stick aims and fires, corner buttons dash &amp; swap.
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <div className="panel rise-in-2 p-5">
-                  <div className="stencil-tag mb-2">HALL OF THE LIVING — TOP SCORES</div>
-                  <HighScores list={scores} />
-                </div>
               </div>
             </div>
           </div>
 
-          {/* footer strip */}
-          <div className="relative z-10 flex h-8 items-center justify-between border-t border-[#2c3a22] bg-[#0a0e08]/90 px-4 text-[12px] font-semibold tracking-[0.25em] text-[#7d9457]">
-            <span>NIGHT OPS BUILD 1.7</span>
+          {/* footer strip — build tag lives in the left column now; hidden on short viewports */}
+          <div className="start-footer relative z-10 flex h-8 items-center justify-end border-t border-[#2c3a22] bg-[#0a0e08]/90 px-4 text-[12px] font-semibold tracking-[0.25em] text-[#7d9457]">
             <span className="flicker text-[#ff2f2f]">PERIMETER BREACH IMMINENT</span>
+          </div>
+        </div>
+      )}
+
+      {/* ============ FIELD MANUAL + RECORDS (start-screen toggle) ============ */}
+      {phase === "menu" && manualOpen && (
+        <div className="safe-inset absolute inset-0 z-40 grid place-items-center bg-[#05080488] p-4 backdrop-blur-[2px]">
+          <div className="panel rise-in w-full max-w-md p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="stencil-tag">FIELD MANUAL &amp; RECORDS</span>
+              <button className="icon-btn" aria-label="Close" onClick={() => setManualOpen(false)}>
+                <span className="text-lg leading-none">✕</span>
+              </button>
+            </div>
+            <div className="max-h-[62vh] overflow-y-auto pr-1">
+              <Manual touch={isTouch} />
+              {isTouch ? null : (
+                <div className="mt-3 border-t border-[#2c3a22] pt-3">
+                  <div className="stencil-tag mb-2 text-[#ffb020]">TOUCH PROTOCOL</div>
+                  <p className="text-[14px] tracking-wide text-[#a8bd8a]">
+                    On phones: left stick moves, right stick aims and fires, corner buttons dash &amp; swap.
+                  </p>
+                </div>
+              )}
+              <div className="mt-4 border-t border-[#2c3a22] pt-3">
+                <div className="stencil-tag mb-2">HALL OF THE LIVING — TOP SCORES</div>
+                <HighScores list={scores} />
+              </div>
+            </div>
           </div>
         </div>
       )}
