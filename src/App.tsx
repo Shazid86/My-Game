@@ -537,38 +537,42 @@ export default function App() {
           </div>
 
           <div className="relative z-10 flex flex-1 items-center overflow-hidden p-3 sm:p-6">
-            <div className="start-grid m-auto grid w-full max-w-5xl items-center gap-3 py-2 lg:grid-cols-[1.15fr_1fr] lg:gap-6 [@media(max-height:500px)]:grid-cols-[1.1fr_1fr]">
-              {/* left: identity */}
-              <div className="rise-in">
-                <div className="stencil-tag mb-2 flex items-center gap-3">
-                  <span className="inline-block h-[2px] w-8 bg-[#9dff20]" />
-                  ZONE 07 // NIGHT OPERATIONS
+            <div className="start-grid m-auto grid w-full max-w-5xl items-center gap-3 py-2 lg:grid-cols-[1.15fr_1fr] lg:gap-6">
+              {/* left: identity — top/bottom edges align with the right panel in low landscape */}
+              <div className="start-left rise-in">
+                <div>
+                  <div className="stencil-tag mb-2 flex items-center gap-3">
+                    <span className="inline-block h-[2px] w-8 bg-[#9dff20]" />
+                    ZONE 07 // NIGHT OPERATIONS
+                  </div>
+                  <h1 className="start-title font-creep title-drip text-[19vw] leading-[0.86] text-[#ff2f2f] sm:text-8xl lg:text-[7.2rem]">
+                    GRAVEYARD
+                    <br />
+                    SHIFT
+                  </h1>
+                  <p className="start-sub mt-3 max-w-md text-lg font-medium leading-snug tracking-wide text-[#e8e2cf]/85">
+                    The fence won't hold. Hold the yard instead — wave after wave of the
+                    restless dead, until the sun comes up or you don't.
+                  </p>
                 </div>
-                <h1 className="start-title font-creep title-drip text-[19vw] leading-[0.86] text-[#ff2f2f] sm:text-8xl lg:text-[7.2rem]">
-                  GRAVEYARD
-                  <br />
-                  SHIFT
-                </h1>
-                <p className="start-sub mt-3 max-w-md text-lg font-medium leading-snug tracking-wide text-[#e8e2cf]/85">
-                  The fence won't hold. Hold the yard instead — wave after wave of the
-                  restless dead, until the sun comes up or you don't.
-                </p>
-                <div className="stencil-tag mt-2 text-[#7d9457]">NIGHT OPS BUILD 1.7</div>
 
-                <div className="start-stats mt-5 flex flex-wrap gap-x-6 gap-y-1 text-[13px] font-semibold tracking-[0.18em] text-[#7d9457]">
-                  <span><span className="text-[#ffb020]">5</span> MUTATIONS</span>
-                  <span><span className="text-[#ffb020]">6</span> WEAPONS</span>
-                  <span>
-                    <span className="text-[#9adcff]">3</span> LONG
-                    <span className="text-[#7d9457]"> / </span>
-                    <span className="text-[#ffb46a]">3</span> SHORT
-                  </span>
-                  <span><span className="text-[#ffb020]">∞</span> WAVES</span>
+                <div className="start-bottom mt-5">
+                  <div className="start-stats flex flex-wrap gap-x-6 gap-y-1 text-[13px] font-semibold tracking-[0.18em] text-[#7d9457]">
+                    <span><span className="text-[#ffb020]">5</span> MUTATIONS</span>
+                    <span><span className="text-[#ffb020]">6</span> WEAPONS</span>
+                    <span>
+                      <span className="text-[#9adcff]">3</span> LONG
+                      <span className="text-[#7d9457]"> / </span>
+                      <span className="text-[#ffb46a]">3</span> SHORT
+                    </span>
+                    <span><span className="text-[#ffb020]">∞</span> WAVES</span>
+                  </div>
+                  <div className="stencil-tag mt-2 text-[#7d9457]">NIGHT OPS BUILD 1.7</div>
                 </div>
               </div>
 
               {/* right: run configuration */}
-              <div className="rise-in-1 flex flex-col gap-3">
+              <div className="start-right rise-in-1 flex flex-col gap-3">
                 <div className="grid grid-cols-2 gap-3">
                   <ModeCard
                     title="SURVIVAL SHIFT"
@@ -657,7 +661,7 @@ export default function App() {
 
       {/* ============ FIELD MANUAL + RECORDS (start-screen toggle) ============ */}
       {phase === "menu" && manualOpen && (
-        <div className="safe-inset absolute inset-0 z-40 grid place-items-center bg-[#05080488] p-4 backdrop-blur-[2px]">
+        <div className="safe-inset absolute inset-0 z-40 grid h-[100dvh] place-items-center overflow-hidden bg-[#05080488] p-4 backdrop-blur-[2px]">
           <div className="panel rise-in w-full max-w-md p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <span className="stencil-tag">FIELD MANUAL &amp; RECORDS</span>
@@ -686,7 +690,7 @@ export default function App() {
 
       {/* ============ PAUSE ============ */}
       {phase === "paused" && (
-        <div className="safe-inset absolute inset-0 z-30 grid place-items-center bg-[#05080488] p-4 backdrop-blur-[2px]">
+        <div className="safe-inset absolute inset-0 z-30 grid h-[100dvh] place-items-center overflow-hidden bg-[#05080488] p-4 backdrop-blur-[2px]">
           <div className="panel rise-in w-full max-w-[340px] p-5 text-center">
             <div className="stencil-tag mb-1">SHIFT SUSPENDED</div>
             <h2 className="font-creep text-4xl text-[#9dff20]">PAUSED</h2>
@@ -733,14 +737,14 @@ export default function App() {
 
       {/* ============ GAME OVER ============ */}
       {phase === "gameover" && stats && (
-        <div className="absolute inset-0 z-30 flex overflow-y-auto bg-[#160505aa] p-4">
-          <div className="m-auto w-full max-w-3xl py-4">
-            <div className="mb-4 text-center">
-              <span className="font-creep stamp-in inline-block border-4 border-[#ff2f2f] px-8 py-2 text-6xl text-[#ff2f2f] sm:text-7xl">
+        <div className="absolute inset-0 z-30 flex h-[100dvh] overflow-hidden bg-[#160505aa] p-3 sm:p-4">
+          <div className="m-auto max-h-full w-full max-w-3xl overflow-hidden py-1">
+            <div className="dead-head mb-4 text-center">
+              <span className="dead-banner font-creep stamp-in inline-block border-4 border-[#ff2f2f] px-6 py-1.5 text-5xl text-[#ff2f2f] sm:text-6xl">
                 DEAD.
               </span>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="dead-grid grid gap-4 sm:grid-cols-2">
               <div className="panel panel-blood rise-in p-6">
                 <div className="stencil-tag mb-3" style={{ color: "#ff6b5e" }}>SHIFT REPORT</div>
                 <div className="space-y-2 text-[17px] tracking-wide">
