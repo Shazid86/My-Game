@@ -276,6 +276,7 @@ interface OwnedWeapon {
   def: WeaponDef;
   mag: number;
   reserve: number;
+  wasEmpty?: boolean;
 }
 
 interface Banner {
@@ -413,9 +414,8 @@ export class Game {
   private resumePhase: Phase = "playing";
 
   // airdrop
-  private airdropState: "idle" | "waiting" | "spawned" = "idle";
-  private airdropTimer = 0;
-  private airdropCrate: { x: number; y: number; r: number; t: number } | null = null;
+  private airdropTimers: number[] = [];
+  private airdropCrates: { x: number; y: number; r: number; t: number }[] = [];
 
   // fx
   private trauma = 0;
@@ -686,9 +686,8 @@ export class Game {
     this.thrown.length = 0;
     this.rings.length = 0;
     this.blastDepth = 0;
-    this.airdropState = "idle";
-    this.airdropTimer = 0;
-    this.airdropCrate = null;
+    this.airdropTimers.length = 0;
+    this.airdropCrates.length = 0;
     this.centerCamera();
   }
 
@@ -2376,34 +2375,35 @@ export class Game {
 
   private updateAirdrop(dt: number) {
     const p = this.player;
-    if (this.airdropState === "idle") {
-      let trigger = false;
-      for (const w of this.weapons) {
-        if (w.def.reserve !== -1 && w.mag === 0 && w.reserve === 0) {
-          trigger = true;
-          break;
+
+    for (const w of this.weapons) {
+      if (w.def.reserve !== -1) {
+        const isEmpty = w.mag === 0 && w.reserve === 0;
+        if (isEmpty && !w.wasEmpty) {
+          this.airdropTimers.push(rand(3, 5));
         }
+        w.wasEmpty = isEmpty;
       }
-      if (trigger) {
-        this.airdropState = "waiting";
-        this.airdropTimer = rand(3, 5);
-      }
-    } else if (this.airdropState === "waiting") {
-      this.airdropTimer -= dt;
-      if (this.airdropTimer <= 0) {
-        this.airdropState = "spawned";
+    }
+
+    for (let i = this.airdropTimers.length - 1; i >= 0; i--) {
+      this.airdropTimers[i] -= dt;
+      if (this.airdropTimers[i] <= 0) {
+        this.airdropTimers.splice(i, 1);
         const cx = clamp(p.x + rand(-200, 200), 40, this.worldW - 40);
         const cy = clamp(p.y + rand(-200, 200), 40, this.worldH - 40);
-        this.airdropCrate = { x: cx, y: cy, r: 24, t: 0 };
+        this.airdropCrates.push({ x: cx, y: cy, r: 24, t: 0 });
         this.floaters.push({ x: cx, y: cy - 30, life: 3, max: 3, text: "SUPPLY DROP", color: "#9adcff", size: 16 });
       }
-    } else if (this.airdropState === "spawned" && this.airdropCrate) {
-      this.airdropCrate.t += dt;
-      const dx = p.x - this.airdropCrate.x;
-      const dy = p.y - this.airdropCrate.y;
-      if (Math.hypot(dx, dy) < p.r + this.airdropCrate.r) {
-        this.airdropState = "idle";
-        this.airdropCrate = null;
+    }
+
+    for (let i = this.airdropCrates.length - 1; i >= 0; i--) {
+      const cr = this.airdropCrates[i];
+      cr.t += dt;
+      const dx = p.x - cr.x;
+      const dy = p.y - cr.y;
+      if (Math.hypot(dx, dy) < p.r + cr.r) {
+        this.airdropCrates.splice(i, 1);
         for (const w of this.weapons) {
           if (w.def.reserve !== -1) {
             const orig = WEAPONS.find(def => def.id === w.def.id);
@@ -2417,8 +2417,7 @@ export class Game {
   }
 
   private drawAirdrop(c: CanvasRenderingContext2D) {
-    if (this.airdropState === "spawned" && this.airdropCrate) {
-      const cr = this.airdropCrate;
+    for (const cr of this.airdropCrates) {
       c.save();
       c.translate(cr.x, cr.y);
       const wobble = Math.sin(cr.t * 4) * 2;
