@@ -121,11 +121,11 @@ interface WeaponDef {
  */
 const WEAPONS: WeaponDef[] = [
   { id: "pistol", name: "M9 SIDEARM", short: "M9", role: "long", dmg: 36, rate: 4.5, mag: 15, reload: 0.6, speed: 980, pellets: 1, spread: 0.025, reserve: -1, shake: 2.4, knock: 90, pierce: 0, tracer: "#ffe9a8" },
-  { id: "smg", name: "VIPER SMG", short: "SMG", role: "long", dmg: 17, rate: 13, mag: 36, reload: 0.8, speed: 1020, pellets: 1, spread: 0.065, reserve: 150, shake: 1.6, knock: 50, pierce: 0, tracer: "#d8ff9a" },
-  { id: "shotgun", name: "RIOT GUN", short: "RIOT", role: "short", dmg: 45, rate: 2.1, mag: 6, reload: 0.95, speed: 900, pellets: 6, spread: 0.4, reserve: 30, shake: 8, knock: 260, pierce: 0, tracer: "#ffc46a", fo: { start: 140, end: 420, far: 0.3 } },
+  { id: "smg", name: "VIPER SMG", short: "SMG", role: "long", dmg: 17, rate: 13, mag: 36, reload: 0.8, speed: 1020, pellets: 1, spread: 0.065, reserve: -1, shake: 1.6, knock: 50, pierce: 0, tracer: "#d8ff9a" },
+  { id: "shotgun", name: "RIOT GUN", short: "RIOT", role: "short", dmg: 45, rate: 2.1, mag: 6, reload: 0.95, speed: 900, pellets: 6, spread: 0.4, reserve: -1, shake: 8, knock: 260, pierce: 0, tracer: "#ffc46a", fo: { start: 140, end: 420, far: 0.3 } },
   { id: "rifle", name: "RAIL-7 RIFLE", short: "RAIL", role: "long", dmg: 140, rate: 2.7, mag: 6, reload: 0.9, speed: 1700, pellets: 1, spread: 0.005, reserve: 20, shake: 5.5, knock: 160, pierce: 4, tracer: "#9adcff" },
   { id: "flame", name: "INCINERATOR", short: "FLAME", role: "short", dmg: 16, rate: 18, mag: 120, reload: 1.1, speed: 480, pellets: 2, spread: 0.35, reserve: 300, shake: 1.2, knock: 8, pierce: 99, tracer: "#ff5000" },
-  { id: "chainsaw", name: "RIPPER SAW", short: "SAW", role: "short", dmg: 15, rate: 20, mag: 999, reload: 0, speed: 600, pellets: 3, spread: 0.6, reserve: -1, shake: 1.5, knock: 45, pierce: 99, tracer: "rgba(255,40,40,0.15)" },
+  { id: "chainsaw", name: "RIPPER SAW", short: "SAW", role: "short", dmg: 15, rate: 20, mag: 999, reload: 0, speed: 600, pellets: 3, spread: 0.6, reserve: 999, shake: 1.5, knock: 45, pierce: 99, tracer: "rgba(255,40,40,0.15)" },
 ];
 
 const ROLE_COLOR: Record<WeaponRole, string> = { long: "#9adcff", short: "#ffb46a" };
@@ -412,6 +412,11 @@ export class Game {
   private lastTickN = 0;
   private resumePhase: Phase = "playing";
 
+  // airdrop
+  private airdropState: "idle" | "waiting" | "spawned" = "idle";
+  private airdropTimer = 0;
+  private airdropCrate: { x: number; y: number; r: number; t: number } | null = null;
+
   // fx
   private trauma = 0;
   private hitStop = 0;
@@ -650,9 +655,9 @@ export class Game {
     p.dryCd = 0;
 
     this.weapons = [
-      { def: WEAPONS[0], mag: WEAPONS[0].mag, reserve: -1 },
-      { def: WEAPONS.find(w => w.id === "flame") || WEAPONS[0], mag: 100, reserve: 300 },
-      { def: WEAPONS.find(w => w.id === "chainsaw") || WEAPONS[0], mag: 999, reserve: -1 }
+      { def: WEAPONS[0], mag: WEAPONS[0].mag, reserve: WEAPONS[0].reserve },
+      { def: WEAPONS.find(w => w.id === "flame") || WEAPONS[0], mag: WEAPONS.find(w => w.id === "flame")?.mag || 120, reserve: WEAPONS.find(w => w.id === "flame")?.reserve || 300 },
+      { def: WEAPONS.find(w => w.id === "chainsaw") || WEAPONS[0], mag: WEAPONS.find(w => w.id === "chainsaw")?.mag || 999, reserve: WEAPONS.find(w => w.id === "chainsaw")?.reserve || 999 }
     ];
     this.wIdx = 0;
     this.wave = 0;
@@ -681,6 +686,9 @@ export class Game {
     this.thrown.length = 0;
     this.rings.length = 0;
     this.blastDepth = 0;
+    this.airdropState = "idle";
+    this.airdropTimer = 0;
+    this.airdropCrate = null;
     this.centerCamera();
   }
 
@@ -830,6 +838,7 @@ export class Game {
       this.updateBombs(dt);
       this.updateAcids(dt);
       this.updatePickups(dt);
+      this.updateAirdrop(dt);
       this.updateFx(dt);
       return;
     }
@@ -955,6 +964,7 @@ export class Game {
     this.updateBombs(dt);
     this.updateAcids(dt);
     this.updatePickups(dt);
+    this.updateAirdrop(dt);
     this.updateFx(dt);
 
     /* low hp heartbeat */
@@ -2364,6 +2374,73 @@ export class Game {
     this.draw();
   };
 
+  private updateAirdrop(dt: number) {
+    const p = this.player;
+    if (this.airdropState === "idle") {
+      let trigger = false;
+      for (const w of this.weapons) {
+        if (w.def.reserve !== -1 && w.mag === 0 && w.reserve === 0) {
+          trigger = true;
+          break;
+        }
+      }
+      if (trigger) {
+        this.airdropState = "waiting";
+        this.airdropTimer = rand(3, 5);
+      }
+    } else if (this.airdropState === "waiting") {
+      this.airdropTimer -= dt;
+      if (this.airdropTimer <= 0) {
+        this.airdropState = "spawned";
+        const cx = clamp(p.x + rand(-200, 200), 40, this.worldW - 40);
+        const cy = clamp(p.y + rand(-200, 200), 40, this.worldH - 40);
+        this.airdropCrate = { x: cx, y: cy, r: 24, t: 0 };
+        this.floaters.push({ x: cx, y: cy - 30, life: 3, max: 3, text: "SUPPLY DROP", color: "#9adcff", size: 16 });
+      }
+    } else if (this.airdropState === "spawned" && this.airdropCrate) {
+      this.airdropCrate.t += dt;
+      const dx = p.x - this.airdropCrate.x;
+      const dy = p.y - this.airdropCrate.y;
+      if (Math.hypot(dx, dy) < p.r + this.airdropCrate.r) {
+        this.airdropState = "idle";
+        this.airdropCrate = null;
+        for (const w of this.weapons) {
+          if (w.def.reserve !== -1) {
+            const orig = WEAPONS.find(def => def.id === w.def.id);
+            if (orig) w.reserve = orig.reserve;
+          }
+        }
+        this.floaters.push({ x: p.x, y: p.y - 26, life: 1.5, max: 1.5, text: "HEAVY AMMO REFILLED", color: "#9adcff", size: 18 });
+        this.sfx.pickup();
+      }
+    }
+  }
+
+  private drawAirdrop(c: CanvasRenderingContext2D) {
+    if (this.airdropState === "spawned" && this.airdropCrate) {
+      const cr = this.airdropCrate;
+      c.save();
+      c.translate(cr.x, cr.y);
+      const wobble = Math.sin(cr.t * 4) * 2;
+      c.translate(0, wobble);
+      c.fillStyle = "rgba(154, 220, 255, 0.2)";
+      c.beginPath();
+      c.arc(0, 0, cr.r + 8 + Math.sin(cr.t * 8) * 4, 0, Math.PI * 2);
+      c.fill();
+      
+      c.fillStyle = "#223";
+      c.fillRect(-14, -10, 28, 20);
+      c.strokeStyle = "#9adcff";
+      c.lineWidth = 2;
+      c.strokeRect(-14, -10, 28, 20);
+      
+      c.fillStyle = "#9adcff";
+      c.fillRect(-3, -6, 6, 12);
+      c.fillRect(-8, -3, 16, 6);
+      c.restore();
+    }
+  }
+
   /* ---------------- drawing ---------------- */
 
   private draw() {
@@ -2396,6 +2473,7 @@ export class Game {
     } else {
       this.drawMarks();
       this.drawPickups();
+      this.drawAirdrop(c);
       for (const z of this.zombies) {
         if (this.visible(z.x, z.y, z.r + 40)) this.drawZombie(z);
       }
