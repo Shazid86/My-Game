@@ -548,7 +548,7 @@ export class Game {
     const owned: OwnedWeapon[] = [];
     for (const ws of s.weapons) {
       const def = WEAPONS.find((d) => d.id === ws.id);
-      if (def) owned.push({ def, mag: clamp(ws.mag, 0, def.mag), reserve: ws.reserve });
+      if (def) owned.push({ def, mag: clamp(ws.mag, 0, def.mag), reserve: ws.reserve, wasEmpty: false });
     }
     if (owned.length > 0) {
       this.weapons = owned;
@@ -655,9 +655,9 @@ export class Game {
     p.dryCd = 0;
 
     this.weapons = [
-      { def: WEAPONS[0], mag: WEAPONS[0].mag, reserve: WEAPONS[0].reserve },
-      { def: WEAPONS.find(w => w.id === "flame") || WEAPONS[0], mag: WEAPONS.find(w => w.id === "flame")?.mag || 120, reserve: WEAPONS.find(w => w.id === "flame")?.reserve || 300 },
-      { def: WEAPONS.find(w => w.id === "chainsaw") || WEAPONS[0], mag: WEAPONS.find(w => w.id === "chainsaw")?.mag || 999, reserve: WEAPONS.find(w => w.id === "chainsaw")?.reserve || 999 }
+      { def: WEAPONS[0], mag: WEAPONS[0].mag, reserve: WEAPONS[0].reserve, wasEmpty: false },
+      { def: WEAPONS.find(w => w.id === "flame") || WEAPONS[0], mag: WEAPONS.find(w => w.id === "flame")?.mag || 120, reserve: WEAPONS.find(w => w.id === "flame")?.reserve || 300, wasEmpty: false },
+      { def: WEAPONS.find(w => w.id === "chainsaw") || WEAPONS[0], mag: WEAPONS.find(w => w.id === "chainsaw")?.mag || 999, reserve: WEAPONS.find(w => w.id === "chainsaw")?.reserve || 999, wasEmpty: false }
     ];
     this.wIdx = 0;
     this.wave = 0;
@@ -1564,7 +1564,7 @@ export class Game {
       this.floaters.push({ x: p.x, y: p.y - 26, life: 0.9, max: 0.9, text: "AMMO REFILLED", color: "#ffb020", size: 16 });
     } else if (pk.type === "weapon") {
       const def = WEAPONS[pk.weaponIdx];
-      this.weapons.push({ def, mag: def.mag, reserve: def.reserve });
+      this.weapons.push({ def, mag: def.mag, reserve: def.reserve, wasEmpty: false });
       this.wIdx = this.weapons.length - 1;
       p.reloadT = 0;
       this.floaters.push({ x: p.x, y: p.y - 26, life: 1.1, max: 1.1, text: `${def.name} ACQUIRED`, color: "#9dff20", size: 18 });
